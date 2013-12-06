@@ -137,6 +137,7 @@
                     this.config.defaultParams = cfg.defaultParams || defaultOptions.defaultParams;
                     this.config.updateMethod = (cfg.updateMethod || defaultOptions.updateMethod).toLowerCase();
 
+                    this.config.requestInterceptors = cfg.requestInterceptors ? cfg.responseInterceptors.slice(0) : [];
                     this.config.requestTransformers = cfg.requestTransformers ? cfg.requestTransformers.slice(0) : [];
                     this.config.responseInterceptors = cfg.responseInterceptors ? cfg.responseInterceptors.slice(0) : [];
                     this.config.afterResponseInterceptors = cfg.afterResponseInterceptors ? cfg.afterResponseInterceptors.slice(0) : [];
@@ -210,9 +211,17 @@
                     });
                 };
 
+                RailsResource.beforeRequestInterceptor = function (fn) {
+                   fn = RailsResourceInjector.getDependency(fn);
+                   this.config.requestInterceptors.push(function (data) {
+                       return fn(data) || data;
+                   });
+                };
+
                 // transform data for request:
                 RailsResource.transformData = function (data) {
                     var config = this.config;
+
                     data = config.serializer.serialize(data);
 
                     forEachDependency(this.config.requestTransformers, function (transformer) {
@@ -226,6 +235,12 @@
                     return data;
                 };
 
+                RailsResource.callRequestInterceptors = function(data) {
+                    forEachDependency(this.config.requestInterceptors, function (interceptor) {
+                        interceptor(data);
+                    });
+
+                }
                 // transform data on response:
                 RailsResource.callInterceptors = function (promise, context) {
                     var config = this.config;
@@ -363,7 +378,10 @@
                 angular.forEach(['post', 'put', 'patch'], function (method) {
                     RailsResource['$' + method] = function (url, data) {
                         var config;
+
+                        this.callRequestInterceptors(data);
                         // clone so we can manipulate w/o modifying the actual instance
+
                         data = this.transformData(angular.copy(data));
                         config = angular.extend({method: method, url: url, data: data}, this.getHttpConfig());
                         return this.processResponse($http(config));
@@ -371,6 +389,8 @@
 
                     RailsResource.prototype['$' + method] = function (url) {
                         var data, config;
+
+                        this.constructor.callRequestInterceptors(this);
                         // clone so we can manipulate w/o modifying the actual instance
                         data = this.constructor.transformData(angular.copy(this, {}));
                         config = angular.extend({method: method, url: url, data: data}, this.constructor.getHttpConfig());
